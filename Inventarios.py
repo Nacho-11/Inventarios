@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import sqlite3
 import os
 import sys
+from matplotlib.backend_bases import cursors
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import pandas as pd
@@ -58,32 +59,200 @@ class ToolTip:
 class LicorDB:
     def __init__(self, db_name='inventario_licores.db'):
         try:
-            # Crear directorio en Documents para persistencia
+            # Configuración inicial de la base de datos
             data_dir = Path.home() / "Documents" / "InventarioLicores"
             data_dir.mkdir(exist_ok=True, parents=True)
-        
+            
             db_path = data_dir / db_name
-            print(f"Base de datos ubicada en: {db_path}")  # Para verificar la ruta
-        
+            print(f"Base de datos ubicada en: {db_path}")
+            
             self.conn = sqlite3.connect(str(db_path))
             self.create_tables()
             self.create_admin_user()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo inicializar la base de datos: {str(e)}")
             raise
-        
-    def drop_tables(self):
-        """Elimina las tablas existentes (solo para desarrollo)"""
-        tables = ['movimientos', 'productos', 'usuarios', 'locales']
+
+    def create_admin_user(self):
+        """Crea el usuario administrador por defecto si no existe"""
         cursor = self.conn.cursor()
-        for table in tables:
-            try:
-                cursor.execute(f"DROP TABLE IF EXISTS {table}")
-            except sqlite3.Error as e:
-                print(f"No se pudo eliminar la tabla {table}: {e}")
+        
+        # 1. Verificar si el usuario admin ya existe
+        cursor.execute("SELECT id FROM usuarios WHERE username = 'admin'")
+        if cursor.fetchone() is not None:
+            return
+            
+        # 2. Crear local principal si no existe
+        cursor.execute("SELECT id FROM locales WHERE nombre = 'Local Principal'")
+        local = cursor.fetchone()
+        
+        if local is None:
+            cursor.execute("INSERT INTO locales (nombre) VALUES ('Local Principal')")
+            local_id = cursor.lastrowid
+        else:
+            local_id = local[0]
+        
+        # 3. Crear usuario administrador
+        cursor.execute(
+            "INSERT INTO usuarios (username, password, nombre, rol, local_id) VALUES (?, ?, ?, ?, ?)",
+            ('admin', 'admin123', 'Administrador', 'admin', local_id)
+        )
         self.conn.commit()
     
+    def insertar_licores_comerciales(self):
+        """Inserta datos iniciales de licores comerciales con múltiples presentaciones"""
+        licores = [
+            # Whisky - Escocés
+            ('Chivas Regal 12 - 750ml', 'Chivas Regal', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Chivas Regal 12 - 1L', 'Chivas Regal', 'Whisky', 'Botella 1L', 0.94, 1000, 650),
+            ('Chivas Regal 18 - 750ml', 'Chivas Regal', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Johnnie Walker Black Label - 750ml', 'Johnnie Walker', 'Whisky', 'Botella 750ml', 0.94, 750, 520),
+            ('Johnnie Walker Black Label - 1L', 'Johnnie Walker', 'Whisky', 'Botella 1L', 0.94, 1000, 700),
+            ('Johnnie Walker Red Label - 750ml', 'Johnnie Walker', 'Whisky', 'Botella 750ml', 0.94, 750, 520),
+            ('Johnnie Walker Blue Label - 750ml', 'Johnnie Walker', 'Whisky', 'Botella 750ml', 0.94, 750, 520),
+            ('Ballantine\'s Finest - 750ml', 'Ballantine\'s', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Ballantine\'s 12 - 750ml', 'Ballantine\'s', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Dewar\'s White Label - 750ml', 'Dewar\'s', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Glenfiddich 12 - 750ml', 'Glenfiddich', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Glenlivet 12 - 750ml', 'Glenlivet', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Macallan 12 - 750ml', 'Macallan', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+        
+            # Whisky - Americano (Bourbon)
+            ('Jack Daniel\'s Old No.7 - 750ml', 'Jack Daniel\'s', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Jack Daniel\'s Honey - 750ml', 'Jack Daniel\'s', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Jim Beam White - 750ml', 'Jim Beam', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Jim Beam Black - 750ml', 'Jim Beam', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Maker\'s Mark - 750ml', 'Maker\'s Mark', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Wild Turkey 101 - 750ml', 'Wild Turkey', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+        
+            # Whisky - Irlandés
+            ('Jameson Original - 750ml', 'Jameson', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Jameson Black Barrel - 750ml', 'Jameson', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+            ('Bushmills Original - 750ml', 'Bushmills', 'Whisky', 'Botella 750ml', 0.94, 750, 500),
+        
+            # Ron
+            ('Havana Club 7 - 700ml', 'Havana Club', 'Ron', 'Botella 700ml', 0.95, 700, 450),
+            ('Havana Club 7 - 1L', 'Havana Club', 'Ron', 'Botella 1L', 0.95, 1000, 600),
+            ('Bacardí Superior - 750ml', 'Bacardí', 'Ron', 'Botella 750ml', 0.95, 750, 470),
+            ('Captain Morgan Spiced Gold - 750ml', 'Captain Morgan', 'Ron', 'Botella 750ml', 0.95, 750, 470),
+            ('Flor de Caña 4 - 750ml', 'Flor de Caña', 'Ron', 'Botella 750ml', 0.95, 750, 470),
+            ('Flor de Caña 7 - 750ml', 'Flor de Caña', 'Ron', 'Botella 750ml', 0.95, 750, 470),
+            ('Brugal Añejo - 750ml', 'Brugal', 'Ron', 'Botella 750ml', 0.95, 750, 470),
+
+            # Rones colombianos (nuevas adiciones)
+            ('Ron Viejo de Caldas 8 años - 750ml', 'Viejo de Caldas', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Viejo de Caldas 12 años - 750ml', 'Viejo de Caldas', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Centenario 5 - 750ml', 'Centenario', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Centenario 7 - 750ml', 'Centenario', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Centenario 12 - 750ml', 'Centenario', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Centenario 20 - 750ml', 'Centenario', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Rancho Escondido 3 años - 750ml', 'Rancho Escondido', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Rancho Escondido 5 años - 750ml', 'Rancho Escondido', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Rancho Escondido 8 años - 750ml', 'Rancho Escondido', 'Ron', 'Botella 750ml', 0.95, 750, 480),
+            ('Ron Medellín Añejo - 750ml', 'Ron Medellín', 'Ron', 'Botella 750ml', 0.95, 750, 480),  # Extra colombiano
+            ('Ron Santafé Añejo - 750ml', 'Santafé', 'Ron', 'Botella 750ml', 0.95, 750, 480),  # Extra colombiano
+        
+            # Vodka
+            ('Smirnoff - 750ml', 'Smirnoff', 'Vodka', 'Botella 750ml', 0.953, 750, 500),
+            ('Smirnoff - 1L', 'Smirnoff', 'Vodka', 'Botella 1L', 0.953, 1000, 600),
+            ('Absolut - 750ml', 'Absolut', 'Vodka', 'Botella 750ml', 0.953, 750, 500),
+            ('Absolut Citron - 750ml', 'Absolut', 'Vodka', 'Botella 750ml', 0.953, 750, 500),
+            ('Grey Goose - 750ml', 'Grey Goose', 'Vodka', 'Botella 750ml', 0.953, 750, 500),
+            ('Belvedere - 750ml', 'Belvedere', 'Vodka', 'Botella 750ml', 0.953, 750, 500),
+            ('Skyy - 750ml', 'Skyy', 'Vodka', 'Botella 750ml', 0.953, 750, 500),
+            ('Stolichnaya - 750ml', 'Stolichnaya', 'Vodka', 'Botella 750ml', 0.953, 750, 500),
+        
+            # Tequila
+            ('José Cuervo Especial - 750ml', 'José Cuervo', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('José Cuervo Tradicional - 750ml', 'José Cuervo', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('José Cuervo 1800 - 750ml', 'José Cuervo', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('Don Julio Blanco - 750ml', 'Don Julio', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('Don Julio Reposado - 750ml', 'Don Julio', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('Patrón Silver - 750ml', 'Patrón', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('Patrón Reposado - 750ml', 'Patrón', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('Herradura Blanco - 750ml', 'Herradura', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+            ('Herradura Reposado - 750ml', 'Herradura', 'Tequila', 'Botella 750ml', 0.93, 750, 500),
+        
+            # Ginebra
+            ('Tanqueray - 750ml', 'Tanqueray', 'Ginebra', 'Botella 750ml', 0.949, 750, 520),
+            ('Tanqueray - 1L', 'Tanqueray', 'Ginebra', 'Botella 1L', 0.949, 1000, 600),
+            ('Beefeater - 750ml', 'Beefeater', 'Ginebra', 'Botella 750ml', 0.949, 750, 520),
+            ('Bombay Sapphire - 750ml', 'Bombay Sapphire', 'Ginebra', 'Botella 750ml', 0.949, 750, 520),
+            ('Gordon\'s - 750ml', 'Gordon\'s', 'Ginebra', 'Botella 750ml', 0.949, 750, 520),
+            ('Hendrick\'s - 750ml', 'Hendrick\'s', 'Ginebra', 'Botella 750ml', 0.949, 750, 520),
+        
+            # Brandy/Cognac
+            ('Fundador - 750ml', 'Fundador', 'Brandy', 'Botella 750ml', 0.94, 750, 500),
+            ('Torres 10 - 750ml', 'Torres', 'Brandy', 'Botella 750ml', 0.94, 750, 500),
+            ('Hennessy VS - 750ml', 'Hennessy', 'Cognac', 'Botella 750ml', 0.94, 750, 500),
+            ('Rémy Martin VSOP - 750ml', 'Rémy Martin', 'Cognac', 'Botella 750ml', 0.94, 750, 500),
+            ('Courvoisier VS - 750ml', 'Courvoisier', 'Cognac', 'Botella 750ml', 0.94, 750, 500),
+        
+            # Licores y Cremas
+            ('Baileys Original - 750ml', 'Baileys', 'Licor', 'Botella 750ml', 1.10, 750, 500),
+            ('Kahlúa - 750ml', 'Kahlúa', 'Licor', 'Botella 750ml', 1.10, 750, 500),
+            ('Amaretto Disaronno - 750ml', 'Disaronno', 'Licor', 'Botella 750ml', 1.05, 750, 500),
+            ('Cointreau - 750ml', 'Cointreau', 'Licor', 'Botella 750ml', 1.05, 750, 500),
+            ('Grand Marnier - 750ml', 'Grand Marnier', 'Licor', 'Botella 750ml', 1.05, 750, 500),
+            ('Jägermeister - 750ml', 'Jägermeister', 'Licor', 'Botella 750ml', 1.10, 750, 500),
+            ('Campari - 750ml', 'Campari', 'Licor', 'Botella 750ml', 1.05, 750, 500),
+        
+            # Pisco
+            ('Pisco Alto del Carmen 35° - 750ml', 'Alto del Carmen', 'Pisco', 'Botella 750ml', 0.93, 750, 500),
+            ('Pisco Capel 35° - 750ml', 'Capel', 'Pisco', 'Botella 750ml', 0.93, 750, 500),
+            ('Pisco Mistral 40° - 750ml', 'Mistral', 'Pisco', 'Botella 750ml', 0.93, 750, 500),
+        
+            # Vermouth
+            ('Martini Rosso - 1L', 'Martini', 'Vermouth', 'Botella 1L', 1.04, 1000, 700),
+            ('Martini Bianco - 1L', 'Martini', 'Vermouth', 'Botella 1L', 1.04, 1000, 700),
+            ('Martini Extra Dry - 1L', 'Martini', 'Vermouth', 'Botella 1L', 1.04, 1000, 700)
+        ]   
+
+        cursor = self.conn.cursor()
+        cursor.executemany('''
+            INSERT INTO licores_comerciales 
+            (nombre, marca, tipo, presentacion, densidad, capacidad_ml, peso_envase)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', licores)
+        self.conn.commit()
+    
+    def execute_query(self, query, params=()):
+        """Ejecuta una consulta que no retorna resultados (INSERT, UPDATE, DELETE)"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(query, params)
+            self.conn.commit()
+            return cursor.rowcount
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise e
+        finally:
+            cursor.close()
+
+    def fetch_all(self, query, params=()):
+        """Ejecuta una consulta y retorna todos los resultados"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(query, params)
+            return cursor.fetchall()
+        except sqlite3.Error as e:
+            raise e
+        finally:
+            cursor.close()
+
+    def fetch_one(self, query, params=()):
+        """Ejecuta una consulta y retorna un solo resultado"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(query, params)
+            return cursor.fetchone()
+        except sqlite3.Error as e:
+            raise e
+        finally:
+            cursor.close()
+    
     def create_tables(self):
+        """Crea todas las tablas necesarias en la base de datos"""
         cursor = self.conn.cursor()
         
         # Tabla de locales
@@ -104,14 +273,14 @@ class LicorDB:
             username TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL,
             nombre TEXT NOT NULL,
-            rol TEXT NOT NULL,  -- 'admin', 'gerente', 'empleado'
+            rol TEXT NOT NULL,
             local_id INTEGER,
             activo INTEGER DEFAULT 1,
             FOREIGN KEY (local_id) REFERENCES locales (id)
         )
         ''')
         
-        # Tabla de productos (con local_id)
+        # Tabla de productos
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,7 +305,7 @@ class LicorDB:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             producto_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
-            tipo TEXT NOT NULL,  -- 'entrada', 'salida', 'ajuste'
+            tipo TEXT NOT NULL,
             cantidad_ml REAL NOT NULL,
             peso_bruto REAL,
             notas TEXT,
@@ -146,50 +315,34 @@ class LicorDB:
         )
         ''')
         
-        self.conn.commit()
-    
-    def create_admin_user(self):
-        """Crea el usuario administrador por defecto si no existe"""
-        cursor = self.conn.cursor()
+        # Tabla de licores comerciales
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS licores_comerciales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            marca TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            presentacion TEXT NOT NULL,
+            densidad REAL NOT NULL,
+            capacidad_ml REAL NOT NULL,
+            peso_envase REAL NOT NULL
+        )
+        ''')
         
-        # Verificar si ya existe un admin
-        cursor.execute("SELECT id FROM usuarios WHERE username = 'admin'")
-        if cursor.fetchone() is None:
-            # Crear local por defecto si no existe
-            cursor.execute("SELECT id FROM locales WHERE nombre = 'Local Principal'")
-            local = cursor.fetchone()
-            
-            if local is None:
-                cursor.execute("INSERT INTO locales (nombre) VALUES ('Local Principal')")
-                local_id = cursor.lastrowid
-            else:
-                local_id = local[0]
-            
-            # Crear usuario admin
-            cursor.execute(
-                "INSERT INTO usuarios (username, password, nombre, rol, local_id) VALUES (?, ?, ?, ?, ?)",
-                ('admin', 'admin123', 'Administrador', 'admin', local_id)
-            )
-            self.conn.commit()
-    
-    def execute_query(self, query, params=()):
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
         self.conn.commit()
-        return cursor
+        
+        # Insertar datos iniciales si las tablas están vacías
+        self.insertar_datos_iniciales()
     
-    def fetch_all(self, query, params=()):
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
-        return cursor.fetchall()
-    
-    def fetch_one(self, query, params=()):
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
-        return cursor.fetchone()
+    def insertar_datos_iniciales(self):
+        """Inserta datos iniciales necesarios para el funcionamiento"""
+        self.create_admin_user()
+        self.insertar_licores_comerciales()
     
     def close(self):
-        self.conn.close()
+        """Cierra la conexión con la base de datos"""
+        if hasattr(self, 'conn'):
+            self.conn.close()
 
 class LoginWindow:
     def __init__(self, root, db):
@@ -201,7 +354,6 @@ class LoginWindow:
             self.root.iconbitmap(resource_path('Icon.ico'))
         except Exception as e:
             print(f"Error al cargar icono: {e}")
-            # Opcional: Puedes cargar un icono por defecto alternativo aquí
         
         self.root.title("Login - Inventario Licores")
         self.root.geometry("400x300")
@@ -315,20 +467,13 @@ class Producto:
 class InventarioApp:
     def __init__(self, root, db, user_id, user_name, user_role, local_id):
         self.root = root
-        """Inicializador de la clase"""
         self.db = db
         self.user_id = user_id
         self.user_name = user_name
         self.user_role = user_role
         self.local_id = local_id
-        self.pages = {}  # Diccionario para almacenar páginas
+        self.pages = {}
         
-        # Configurar el icono de la ventana principal
-        try:
-            self.root.iconbitmap(resource_path('Icon.ico'))
-        except Exception as e:
-            print(f"No se pudo cargar el icono: {e}")
-    
         # Obtener nombre del local
         local_nombre = self.db.fetch_one("SELECT nombre FROM locales WHERE id = ?", (local_id,))[0]
         self.local_nombre = local_nombre
@@ -401,7 +546,7 @@ class InventarioApp:
         self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill='both', expand=True)
         
-        # Barra de navegación
+        # Configurar navegación
         self.setup_navigation()
         
         # Área de contenido
@@ -413,7 +558,7 @@ class InventarioApp:
         self.show_page('inventario')
     
     def setup_navigation(self):
-        """Configura la barra de navegación lateral"""
+        """Configura la barra de navegación"""
         self.nav_frame = ttk.Frame(self.main_frame, width=200)
         self.nav_frame.pack(side='left', fill='y', padx=5, pady=5)
         
@@ -509,7 +654,7 @@ class InventarioApp:
         self.create_movimientos_page()
         self.create_reportes_page()
         self.create_about_page()
-        
+    
         if self.user_role == 'admin':
             self.create_admin_locales_page()
             self.create_admin_usuarios_page()
@@ -624,83 +769,71 @@ class InventarioApp:
         self.tree_inventario.bind('<<TreeviewSelect>>', self.mostrar_detalles_producto)
     
     def create_productos_page(self):
-        """Crea la página de gestión de productos"""
+        """Crea la página de gestión de productos con selección jerárquica"""
         self.pages['productos'] = ttk.Frame(self.content_frame)
-        
+    
         # Frame de formulario
         form_frame = ttk.LabelFrame(self.pages['productos'], text="Agregar/Editar Producto")
         form_frame.pack(fill='x', padx=10, pady=10)
-        
+
+        # Tipos de licor
+        ttk.Label(form_frame, text="Tipo:").grid(row=0, column=0, sticky='e', padx=5, pady=5)
+        self.combo_tipo = ttk.Combobox(form_frame, values=[
+            'Whisky', 'Vodka', 'Ron', 'Ginebra', 'Tequila', 
+            'Brandy', 'Coñac', 'Pisco', 'Vino', 'Cerveza', 'Licor', 'Crema'
+        ], state='readonly')
+        self.combo_tipo.grid(row=0, column=1, sticky='we', padx=5, pady=5)
+        self.combo_tipo.bind('<<ComboboxSelected>>', self.cargar_marcas_por_tipo)
+
+        # Marcas disponibles para el tipo seleccionado
+        ttk.Label(form_frame, text="Marca:").grid(row=1, column=0, sticky='e', padx=5, pady=5)
+        self.combo_marca = ttk.Combobox(form_frame, state='readonly')
+        self.combo_marca.grid(row=1, column=1, sticky='we', padx=5, pady=5)
+        self.combo_marca.bind('<<ComboboxSelected>>', self.cargar_presentaciones_por_marca)
+
+        # Presentaciones disponibles para la marca seleccionada
+        ttk.Label(form_frame, text="Presentación:").grid(row=2, column=0, sticky='e', padx=5, pady=5)
+        self.combo_presentacion = ttk.Combobox(form_frame, state='readonly')
+        self.combo_presentacion.grid(row=2, column=1, sticky='we', padx=5, pady=5)
+        self.combo_presentacion.bind('<<ComboboxSelected>>', self.cargar_datos_licor)
+
         # Campos del formulario
-        ttk.Label(form_frame, text="Nombre:", font=self.font_text).grid(row=0, column=0, sticky='e', padx=5, pady=5)
-        self.entry_prod_nombre = ttk.Entry(form_frame, font=self.font_text)
-        self.entry_prod_nombre.grid(row=0, column=1, sticky='we', padx=5, pady=5)
-        
-        ttk.Label(form_frame, text="Marca:", font=self.font_text).grid(row=1, column=0, sticky='e', padx=5, pady=5)
-        self.entry_prod_marca = ttk.Entry(form_frame, font=self.font_text)
-        self.entry_prod_marca.grid(row=1, column=1, sticky='we', padx=5, pady=5)
-        
-        ttk.Label(form_frame, text="Tipo:", font=self.font_text).grid(row=2, column=0, sticky='e', padx=5, pady=5)
-        self.combo_prod_tipo = ttk.Combobox(form_frame, values=[
-            'Whisky', 'Vodka', 'Ron', 'Ginebra', 'Tequila', 'Brandy',
-            'Coñac', 'Pisco', 'Vino', 'Cerveza', 'Licor', 'Crema'
-        ], font=self.font_text, state='readonly')
-        self.combo_prod_tipo.grid(row=2, column=1, sticky='we', padx=5, pady=5)
-        self.combo_prod_tipo.bind("<<ComboboxSelected>>", self.actualizar_densidad_por_tipo)
-        
-        # Diccionario de densidades
-        self.densidades_licores = {
-            'Whisky': 0.94,
-            'Vodka': 0.953,
-            'Ron': 0.95,
-            'Ginebra': 0.949,
-            'Tequila': 0.93,
-            'Brandy': 0.96,
-            'Coñac': 0.965,
-            'Pisco': 0.94,
-            'Vino': 0.99,
-            'Cerveza': 1.01,
-            'Licor': 1.02,
-            'Crema': 1.03
-        }
-        
-        ttk.Label(form_frame, text="Densidad (g/ml):", font=self.font_text).grid(row=3, column=0, sticky='e', padx=5, pady=5)
-        self.entry_prod_densidad = ttk.Entry(form_frame, font=self.font_text)
-        self.entry_prod_densidad.grid(row=3, column=1, sticky='we', padx=5, pady=5)
-        
-        ttk.Label(form_frame, text="Capacidad (ml):", font=self.font_text).grid(row=4, column=0, sticky='e', padx=5, pady=5)
-        self.entry_prod_capacidad = ttk.Entry(form_frame, font=self.font_text)
-        self.entry_prod_capacidad.grid(row=4, column=1, sticky='we', padx=5, pady=5)
-        
-        ttk.Label(form_frame, text="Peso envase (g):", font=self.font_text).grid(row=5, column=0, sticky='e', padx=5, pady=5)
-        self.entry_prod_peso_envase = ttk.Entry(form_frame, font=self.font_text)
-        self.entry_prod_peso_envase.grid(row=5, column=1, sticky='we', padx=5, pady=5)
-        
-        ttk.Label(form_frame, text="Mínimo inventario (%):", font=self.font_text).grid(row=6, column=0, sticky='e', padx=5, pady=5)
-        self.entry_prod_minimo = ttk.Entry(form_frame, font=self.font_text)
-        self.entry_prod_minimo.insert(0, "20")
-        self.entry_prod_minimo.grid(row=6, column=1, sticky='we', padx=5, pady=5)
-        
+        ttk.Label(form_frame, text="Nombre:").grid(row=3, column=0, sticky='e', padx=5, pady=5)
+        self.entry_nombre = ttk.Entry(form_frame)
+        self.entry_nombre.grid(row=3, column=1, sticky='we', padx=5, pady=5)
+
+        ttk.Label(form_frame, text="Densidad (g/ml):").grid(row=4, column=0, sticky='e', padx=5, pady=5)
+        self.entry_densidad = ttk.Entry(form_frame)
+        self.entry_densidad.grid(row=4, column=1, sticky='we', padx=5, pady=5)
+
+        ttk.Label(form_frame, text="Capacidad (ml):").grid(row=5, column=0, sticky='e', padx=5, pady=5)
+        self.entry_capacidad = ttk.Entry(form_frame)
+        self.entry_capacidad.grid(row=5, column=1, sticky='we', padx=5, pady=5)
+
+        ttk.Label(form_frame, text="Peso envase (g):").grid(row=6, column=0, sticky='e', padx=5, pady=5)
+        self.entry_peso_envase = ttk.Entry(form_frame)
+        self.entry_peso_envase.grid(row=6, column=1, sticky='we', padx=5, pady=5)
+
+        ttk.Label(form_frame, text="Mínimo inventario (%):").grid(row=7, column=0, sticky='e', padx=5, pady=5)
+        self.entry_minimo = ttk.Entry(form_frame)
+        self.entry_minimo.insert(0, "20")
+        self.entry_minimo.grid(row=7, column=1, sticky='we', padx=5, pady=5)
+
         # Botones de acción
         btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=7, columnspan=2, pady=10)
-        
-        self.btn_guardar_producto = ttk.Button(btn_frame, text="Guardar", command=self.guardar_producto)
-        self.btn_guardar_producto.pack(side='left', padx=5)
-        
-        self.btn_limpiar_form = ttk.Button(btn_frame, text="Limpiar", command=self.limpiar_formulario_producto)
-        self.btn_limpiar_form.pack(side='left', padx=5)
-        
-        self.btn_eliminar_producto = ttk.Button(btn_frame, text="Eliminar", command=self.eliminar_producto)
-        self.btn_eliminar_producto.pack(side='left', padx=5)
-        
+        btn_frame.grid(row=8, columnspan=2, pady=10)
+
+        ttk.Button(btn_frame, text="Guardar", command=self.guardar_producto).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Limpiar", command=self.limpiar_formulario_producto).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Eliminar", command=self.eliminar_producto).pack(side='left', padx=5)
+
         # Lista de productos
         list_frame = ttk.LabelFrame(self.pages['productos'], text="Lista de Productos")
         list_frame.pack(fill='both', expand=True, padx=10, pady=(0, 10))
-        
+    
         self.tree_productos = ttk.Treeview(list_frame, columns=('id', 'nombre', 'marca', 'tipo', 'botellas', 'estado'), 
-                                          show='headings')
-        
+                                      show='headings')
+    
         # Configurar columnas
         columns = [
             ('id', 'ID', 50),
@@ -710,19 +843,96 @@ class InventarioApp:
             ('botellas', 'Bot. Completas', 80),
             ('estado', 'Estado', 80)
         ]
-        
+    
         for col_id, col_text, width in columns:
             self.tree_productos.heading(col_id, text=col_text)
             self.tree_productos.column(col_id, width=width, anchor='center')
-        
+    
         # Scrollbar
         scrollbar = ttk.Scrollbar(list_frame, orient='vertical', command=self.tree_productos.yview)
         scrollbar.pack(side='right', fill='y')
         self.tree_productos.configure(yscrollcommand=scrollbar.set)
         self.tree_productos.pack(side='left', fill='both', expand=True, padx=5, pady=5)
-        
+    
         # Evento de selección
         self.tree_productos.bind('<<TreeviewSelect>>', self.cargar_producto_seleccionado)
+    
+    def cargar_marcas_por_tipo(self, event=None):
+        """Carga las marcas disponibles para el tipo seleccionado"""
+        tipo = self.combo_tipo.get()
+        if not tipo:
+            return
+        
+        # Obtener marcas de la base de datos para este tipo
+        query = "SELECT DISTINCT marca FROM licores_comerciales WHERE tipo = ? ORDER BY marca"
+        marcas = [m[0] for m in self.db.fetch_all(query, (tipo,))]
+        
+        self.combo_marca['values'] = marcas
+        self.combo_marca.set('')
+        self.combo_presentacion.set('')
+        self.combo_presentacion['values'] = []
+        self.limpiar_campos()
+    
+    def cargar_presentaciones_por_marca(self, event=None):
+        """Carga las presentaciones disponibles para la marca seleccionada"""
+        tipo = self.combo_tipo.get()
+        marca = self.combo_marca.get()
+    
+        if not tipo or not marca:
+            return
+    
+        # Obtener presentaciones de la base de datos para esta marca
+        query = "SELECT DISTINCT presentacion FROM licores_comerciales WHERE tipo = ? AND marca = ? ORDER BY presentacion"
+        presentaciones = [p[0] for p in self.db.fetch_all(query, (tipo, marca))]
+    
+        self.combo_presentacion['values'] = presentaciones
+        if presentaciones:
+            self.combo_presentacion.current(0)
+            self.cargar_datos_licor()
+        else:
+            self.limpiar_campos()
+    
+    def cargar_datos_licor(self, event=None):
+        """Carga los datos del licor seleccionado"""
+        tipo = self.combo_tipo.get()
+        marca = self.combo_marca.get()
+        presentacion = self.combo_presentacion.get()
+    
+        if not tipo or not marca or not presentacion:
+            return
+    
+        # Obtener datos del licor comercial
+        query = """
+        SELECT nombre, densidad, capacidad_ml, peso_envase 
+        FROM licores_comerciales 
+        WHERE tipo = ? AND marca = ? AND presentacion = ?
+        LIMIT 1
+        """
+        licor = self.db.fetch_one(query, (tipo, marca, presentacion))
+    
+        if licor:
+            nombre, densidad, capacidad, peso_envase = licor
+        
+            self.entry_nombre.delete(0, 'end')
+            self.entry_nombre.insert(0, nombre)
+        
+            self.entry_densidad.delete(0, 'end')
+            self.entry_densidad.insert(0, str(densidad))
+        
+            self.entry_capacidad.delete(0, 'end')
+            self.entry_capacidad.insert(0, str(capacidad))
+        
+            self.entry_peso_envase.delete(0, 'end')
+            self.entry_peso_envase.insert(0, str(peso_envase))        
+    
+    def limpiar_campos(self):
+        """Limpia los campos del formulario"""
+        self.entry_nombre.delete(0, 'end')
+        self.entry_densidad.delete(0, 'end')
+        self.entry_capacidad.delete(0, 'end')
+        self.entry_peso_envase.delete(0, 'end')
+        self.entry_minimo.delete(0, 'end')
+        self.entry_minimo.insert(0, "20")
     
     def create_movimientos_page(self):
         """Crea la página de movimientos"""
@@ -785,6 +995,9 @@ class InventarioApp:
         scrollbar.pack(side='right', fill='y')
         self.tree_movimientos.configure(yscrollcommand=scrollbar.set)
         self.tree_movimientos.pack(side='left', fill='both', expand=True, padx=5, pady=5)
+        
+        # Cargar movimientos iniciales
+        self.cargar_movimientos_recientes()
     
     def create_reportes_page(self):
         """Crea la página de reportes"""
@@ -821,6 +1034,9 @@ class InventarioApp:
         
         btn_exportar_reporte = ttk.Button(ctrl_frame, text="Exportar Gráfico", command=self.exportar_grafico)
         btn_exportar_reporte.grid(row=0, column=5, padx=5, pady=5)
+        
+        # Cargar productos para el reporte
+        self.cargar_productos()
     
     def create_about_page(self):
         """Crea la página 'Acerca de'"""
@@ -1315,14 +1531,6 @@ class InventarioApp:
             estado = "Activo" if activo else "Inactivo"
             self.tree_usuarios.insert('', 'end', values=(id, username, nombre, rol, local_nombre or "", estado))
     
-    def actualizar_densidad_por_tipo(self, event=None):
-        """Actualiza la densidad según el tipo de licor seleccionado"""
-        tipo = self.combo_prod_tipo.get()
-        densidad = self.densidades_licores.get(tipo)
-        if densidad:
-            self.entry_prod_densidad.delete(0, tk.END)
-            self.entry_prod_densidad.insert(0, str(densidad))
-    
     def cargar_productos(self):
         """Carga los productos desde la base de datos"""
         try:
@@ -1387,54 +1595,48 @@ class InventarioApp:
         if producto:
             nombre, marca, tipo, densidad, capacidad, peso_envase, minimo = producto
             
-            self.entry_prod_nombre.delete(0, 'end')
-            self.entry_prod_nombre.insert(0, nombre)
+            self.entry_nombre.delete(0, 'end')
+            self.entry_nombre.insert(0, nombre)
             
-            self.entry_prod_marca.delete(0, 'end')
-            self.entry_prod_marca.insert(0, marca)
+            self.entry_densidad.delete(0, 'end')
+            self.entry_densidad.insert(0, str(densidad))
             
-            self.combo_prod_tipo.set(tipo)
+            self.entry_capacidad.delete(0, 'end')
+            self.entry_capacidad.insert(0, str(capacidad))
             
-            self.entry_prod_densidad.delete(0, 'end')
-            self.entry_prod_densidad.insert(0, str(densidad))
+            self.entry_peso_envase.delete(0, 'end')
+            self.entry_peso_envase.insert(0, str(peso_envase))
             
-            self.entry_prod_capacidad.delete(0, 'end')
-            self.entry_prod_capacidad.insert(0, str(capacidad))
-            
-            self.entry_prod_peso_envase.delete(0, 'end')
-            self.entry_prod_peso_envase.insert(0, str(peso_envase            ))
-            
-            self.entry_prod_minimo.delete(0, 'end')
-            self.entry_prod_minimo.insert(0, str(minimo * 100))  # Convertir a porcentaje
+            self.entry_minimo.delete(0, 'end')
+            self.entry_minimo.insert(0, str(minimo * 100))  # Convertir a porcentaje
     
     def limpiar_formulario_producto(self):
         """Limpia el formulario de producto"""
-        self.entry_prod_nombre.delete(0, 'end')
-        self.entry_prod_marca.delete(0, 'end')
-        self.combo_prod_tipo.set('')
-        self.entry_prod_densidad.delete(0, 'end')
-        self.entry_prod_capacidad.delete(0, 'end')
-        self.entry_prod_peso_envase.delete(0, 'end')
-        self.entry_prod_minimo.delete(0, 'end')
-        self.entry_prod_minimo.insert(0, "20")
+        self.entry_nombre.delete(0, 'end')
+        self.entry_densidad.delete(0, 'end')
+        self.entry_capacidad.delete(0, 'end')
+        self.entry_peso_envase.delete(0, 'end')
+        self.entry_minimo.delete(0, 'end')
+        self.entry_minimo.insert(0, "20")
+        self.combo_tipo.set('')
+        self.combo_marca.set('')
+        self.combo_presentacion.set('')
+        self.tree_productos.selection_remove(self.tree_productos.selection())
     
     def guardar_producto(self):
         """Guarda un producto nuevo o existente"""
-        nombre = self.entry_prod_nombre.get().strip()
-        marca = self.entry_prod_marca.get().strip()
-        tipo = self.combo_prod_tipo.get().strip()
-        
-    # Verificar que local_id existe
-        if not hasattr(self, 'local_id') or self.local_id is None:
-            messagebox.showerror("Error", "No se ha asignado un local válido")
-            return
-            
+        nombre = self.entry_nombre.get().strip()
+        marca = self.combo_marca.get().strip()
+        tipo = self.combo_tipo.get().strip()
+    
         try:
-            densidad = float(self.entry_prod_densidad.get())
-            capacidad = float(self.entry_prod_capacidad.get())
-            peso_envase = float(self.entry_prod_peso_envase.get())
-            minimo = float(self.entry_prod_minimo.get()) / 100  # Convertir a fracción
-            
+            densidad = float(self.entry_densidad.get())
+            capacidad = float(self.entry_capacidad.get())
+            peso_envase = float(self.entry_peso_envase.get())
+            minimo = float(self.entry_minimo.get()) / 100  # Convertir a fracción
+        
+            if not nombre or not marca or not tipo:
+                raise ValueError("Nombre, marca y tipo son campos obligatorios")
             if densidad <= 0 or densidad > 2:
                 raise ValueError("Densidad debe estar entre 0 y 2 g/ml")
             if capacidad <= 0:
@@ -1443,7 +1645,7 @@ class InventarioApp:
                 raise ValueError("El peso del envase debe ser mayor que cero")
             if minimo <= 0 or minimo > 1:
                 raise ValueError("El mínimo de inventario debe estar entre 0% y 100%")
-                
+            
         except ValueError as e:
             messagebox.showerror("Error", f"Datos inválidos: {str(e)}")
             return
@@ -1527,182 +1729,229 @@ class InventarioApp:
     
     def actualizar_inventario(self):
         """Actualiza la lista de inventario con los niveles actuales"""
-        if self.user_role == 'admin':
-            query = """
-            SELECT 
-                p.id, p.nombre, p.marca, p.tipo, p.botellas_completas, p.activo,
-                (SELECT SUM(cantidad_ml) FROM movimientos WHERE producto_id = p.id) as total_ml
-            FROM productos p
-            ORDER BY p.nombre
-            """
-            productos = self.db.fetch_all(query)
-        else:
-            query = """
-            SELECT 
-                p.id, p.nombre, p.marca, p.tipo, p.botellas_completas, p.activo,
-                (SELECT SUM(cantidad_ml) FROM movimientos WHERE producto_id = p.id) as total_ml
-            FROM productos p
-            WHERE p.local_id = ?
-            ORDER BY p.nombre
-            """
-            productos = self.db.fetch_all(query, (self.local_id,))
-        
-        self.tree_inventario.delete(*self.tree_inventario.get_children())
-        
-        total_productos = 0
-        total_botellas = 0
-        bajos_inventario = 0
-        
-        for prod in productos:
-            id, nombre, marca, tipo, botellas, activo, total_ml = prod
-            total_productos += 1
-            total_botellas += botellas
-            
-            if total_ml is None:
-                disponible_text = "No registrado"
-                estado = "Sin datos"
+        try:
+            if self.user_role == 'admin':
+                query = """
+                SELECT 
+                    p.id, p.nombre, p.marca, p.tipo, p.botellas_completas, p.activo,
+                    COALESCE((SELECT SUM(CASE WHEN tipo = 'entrada' THEN cantidad_ml ELSE -cantidad_ml END) 
+                         FROM movimientos WHERE producto_id = p.id), 0) as total_ml,
+                    p.capacidad_ml
+                FROM productos p
+                WHERE p.activo = 1
+                ORDER BY p.nombre
+                """
+                productos = self.db.fetch_all(query)
             else:
-                # Obtener capacidad total del producto
-                cap_query = "SELECT capacidad_ml FROM productos WHERE id = ?"
-                capacidad = self.db.fetch_one(cap_query, (id,))[0]
-                
-                total_ml = total_ml or 0
+                query = """
+                SELECT 
+                    p.id, p.nombre, p.marca, p.tipo, p.botellas_completas, p.activo,
+                    COALESCE((SELECT SUM(CASE WHEN tipo = 'entrada' THEN cantidad_ml ELSE -cantidad_ml END) 
+                         FROM movimientos WHERE producto_id = p.id), 0) as total_ml,
+                    p.capacidad_ml
+                FROM productos p
+                WHERE p.local_id = ? AND p.activo = 1
+                ORDER BY p.nombre
+                """
+                productos = self.db.fetch_all(query, (self.local_id,))
+        
+            # Limpiar el treeview
+            self.tree_inventario.delete(*self.tree_inventario.get_children())
+        
+            total_productos = 0
+            total_botellas = 0
+            bajos_inventario = 0
+        
+            for prod in productos:
+                id_prod, nombre, marca, tipo, botellas, activo, total_ml, capacidad = prod
+                total_productos += 1
+                total_botellas += botellas
+            
+                # Calcular valores
                 total_oz = total_ml * ML_A_OZ
-                disponible_text = f"{total_ml:.1f} ml ({total_oz:.1f} oz)"
-                
-                # Verificar si está bajo en inventario
-                if total_ml < (capacidad * 0.2):  # Menos del 20%
-                    estado = "Bajo"
+                disponible_text = f"{max(total_ml, 0):.1f} ml ({total_oz:.1f} oz)"
+            
+                # Verificar inventario bajo
+                porcentaje = (total_ml / capacidad) * 100 if capacidad > 0 else 0
+                if porcentaje < 20:  # Menos del 20%
+                    estado_tag = 'bajo'
                     bajos_inventario += 1
                 else:
-                    estado = "OK"
+                    estado_tag = 'ok'
             
-            estado_text = "Activo" if activo else "Inactivo"
+                estado_text = "Activo" if activo else "Inactivo"
             
-            self.tree_inventario.insert('', 'end', values=(
-                nombre, marca, tipo, disponible_text, botellas, estado_text
-            ), tags=(estado.lower(),))
+                # Insertar en el treeview
+                self.tree_inventario.insert('', 'end', 
+                                      values=(nombre, marca, tipo, disponible_text, botellas, estado_text),
+                                      tags=(estado_tag,))
         
-        # Actualizar resumen
-        self.lbl_total_productos.config(text=f"Productos: {total_productos}")
-        self.lbl_botellas_completas.config(text=f"Botellas completas: {total_botellas}")
-        self.lbl_bajos_inventario.config(text=f"Productos bajos: {bajos_inventario}")
+            # Actualizar estadísticas
+            self.lbl_total_productos.config(text=f"Productos: {total_productos}")
+            self.lbl_botellas_completas.config(text=f"Botellas completas: {total_botellas}")
+            self.lbl_bajos_inventario.config(text=f"Productos bajos: {bajos_inventario}")
         
-        # Actualizar gráfico
-        self.actualizar_grafico_inventario()
+            # Actualizar gráfico
+            self.actualizar_grafico_inventario()
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo actualizar el inventario: {str(e)}")
     
     def actualizar_grafico_inventario(self):
         """Actualiza el gráfico de niveles de inventario"""
-        if self.user_role == 'admin':
-            query = """
-            SELECT 
-                p.nombre, 
-                (SELECT SUM(cantidad_ml) FROM movimientos WHERE producto_id = p.id) as total_ml,
-                p.capacidad_ml
-            FROM productos p
-            WHERE p.activo = 1
-            ORDER BY p.nombre
-            """
-            datos = self.db.fetch_all(query)
-        else:
-            query = """
-            SELECT 
-                p.nombre, 
-                (SELECT SUM(cantidad_ml) FROM movimientos WHERE producto_id = p.id) as total_ml,
-                p.capacidad_ml
-            FROM productos p
-            WHERE p.activo = 1 AND p.local_id = ?
-            ORDER BY p.nombre
-            """
-            datos = self.db.fetch_all(query, (self.local_id,))
-        
-        self.ax.clear()
-        
-        nombres = []
-        porcentajes = []
-        colores = []
-        
-        for nombre, total_ml, capacidad in datos:
-            if total_ml is None or capacidad == 0:
-                continue
-                
-            porcentaje = (total_ml / capacidad) * 100
-            nombres.append(nombre)
-            porcentajes.append(porcentaje)
-            
-            if porcentaje < 20:
-                colores.append('red')
-            elif porcentaje < 50:
-                colores.append('orange')
+        try:
+            if self.user_role == 'admin':
+                query = """
+                SELECT 
+                    p.nombre, 
+                    COALESCE((SELECT SUM(CASE WHEN tipo = 'entrada' THEN cantidad_ml ELSE -cantidad_ml END) 
+                          FROM movimientos WHERE producto_id = p.id), 0) as total_ml,
+                    p.capacidad_ml,
+                    p.peso_envase
+                FROM productos p
+                WHERE p.activo = 1
+                ORDER BY p.nombre
+                """
+                datos = self.db.fetch_all(query)
             else:
-                colores.append('green')
-        
-        if nombres:
-            y_pos = range(len(nombres))
-            self.ax.barh(y_pos, porcentajes, color=colores)
-            self.ax.set_yticks(y_pos)
-            self.ax.set_yticklabels(nombres)
-            self.ax.set_xlabel('Porcentaje de capacidad (%)')
-            self.ax.set_title('Niveles de Inventario')
-            self.ax.grid(axis='x', linestyle='--', alpha=0.7)
+                query = """
+                SELECT 
+                    p.nombre, 
+                    COALESCE((SELECT SUM(CASE WHEN tipo = 'entrada' THEN cantidad_ml ELSE -cantidad_ml END) 
+                          FROM movimientos WHERE producto_id = p.id), 0) as total_ml,
+                    p.capacidad_ml,
+                    p.peso_envase
+                FROM productos p
+                WHERE p.activo = 1 AND p.local_id = ?
+                ORDER BY p.nombre
+                """
+                datos = self.db.fetch_all(query, (self.local_id,))
+    
+            self.ax.clear()
+    
+            nombres = []
+            porcentajes = []
+            colores = []
+    
+            for nombre, total_ml, capacidad, peso_envase in datos:
+                # Asegurarse de que los valores no sean None
+                total_ml = total_ml if total_ml is not None else 0
+                capacidad = capacidad if capacidad is not None else 1  # Evitar división por cero
+                peso_envase = peso_envase if peso_envase is not None else 0
             
-            # Añadir etiquetas de valor
-            for i, v in enumerate(porcentajes):
-                self.ax.text(v + 1, i, f"{v:.1f}%", color='black', va='center')
+                # Calcular porcentaje
+                if capacidad > 0:
+                    porcentaje = (max(total_ml, 0) / capacidad) * 100  # Evitar porcentajes negativos
+                else:
+                    porcentaje = 0
+            
+                # Obtener último peso registrado
+                ultimo_peso_query = """
+                SELECT peso_bruto FROM movimientos 
+                WHERE producto_id = (SELECT id FROM productos WHERE nombre = ?)
+                ORDER BY fecha DESC LIMIT 1
+                """
+                ultimo_peso_result = self.db.fetch_one(ultimo_peso_query, (nombre,))
+                ultimo_peso = ultimo_peso_result[0] if ultimo_peso_result else None
+            
+                # Determinar si está vacío (último peso ≈ peso_envase)
+                if ultimo_peso is not None and abs(ultimo_peso - peso_envase) < 0.1:
+                    porcentaje = 0.0
+            
+                nombres.append(nombre)
+                porcentajes.append(porcentaje)
         
-        self.canvas.draw()
+                # Determinar color según porcentaje
+                if porcentaje == 0:
+                    colores.append('#777777')  # Gris para vacío
+                elif porcentaje < 20:
+                    colores.append('red')
+                elif porcentaje < 50:
+                    colores.append('orange')
+                else:
+                    colores.append('green')
+    
+            if nombres:
+                y_pos = range(len(nombres))
+                bars = self.ax.barh(y_pos, porcentajes, color=colores)
+        
+                # Añadir etiquetas
+                for i, (bar, porcentaje) in enumerate(zip(bars, porcentajes)):
+                    if porcentaje == 0:
+                        self.ax.text(1, i, "VACÍO", color='white', va='center', ha='left', fontweight='bold')
+                    elif porcentaje > 0:
+                        self.ax.text(porcentaje + 1, i, f"{porcentaje:.1f}%", color='black', va='center')
+        
+                    self.ax.set_yticks(y_pos)
+                    self.ax.set_yticklabels(nombres)
+                    self.ax.set_xlabel('Porcentaje de capacidad (%)')
+                    self.ax.set_title('Niveles de Inventario')
+                    self.ax.grid(axis='x', linestyle='--', alpha=0.3)
+                    self.ax.set_xlim(0, 110)  # Espacio extra para etiquetas
+    
+            self.canvas.draw()
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo actualizar el gráfico: {str(e)}")
+            # Registrar el error para depuración
+            print(f"Error en actualizar_grafico_inventario: {str(e)}")
+            print(f"Datos recibidos: {datos}")
     
     def mostrar_detalles_producto(self, event):
         """Muestra los detalles del producto seleccionado en el inventario"""
         seleccion = self.tree_inventario.selection()
         if not seleccion:
             return
-            
+        
         item = self.tree_inventario.item(seleccion[0])
         nombre = item['values'][0]
+    
+        try:
+            query = """
+            SELECT 
+                p.id, p.nombre, p.marca, p.tipo, p.densidad, p.capacidad_ml, p.peso_envase, p.botellas_completas,
+                COALESCE((SELECT SUM(CASE WHEN tipo = 'entrada' THEN cantidad_ml ELSE -cantidad_ml END) 
+                          FROM movimientos WHERE producto_id = p.id), 0) as total_ml
+            FROM productos p
+            WHERE p.nombre = ?
+            """
+            producto = self.db.fetch_one(query, (nombre,))
         
-        # Obtener datos del producto
-        query = """
-        SELECT 
-            p.id, p.nombre, p.marca, p.tipo, p.densidad, p.capacidad_ml, p.peso_envase, p.botellas_completas,
-            (SELECT SUM(cantidad_ml) FROM movimientos WHERE producto_id = p.id) as total_ml
-        FROM productos p
-        WHERE p.nombre = ?
-        """
-        producto = self.db.fetch_one(query, (nombre,))
-        
-        if not producto:
-            return
+            if not producto:
+                return
             
-        id_prod, nombre, marca, tipo, densidad, capacidad, peso_envase, botellas, total_ml = producto
+            id_prod, nombre, marca, tipo, densidad, capacidad, peso_envase, botellas, total_ml = producto
         
-        # Calcular valores derivados
-        if total_ml is not None:
+            # Calcular valores derivados
             total_oz = total_ml * ML_A_OZ
             peso_licor = total_ml * densidad
             porcentaje = (total_ml / capacidad) * 100 if capacidad > 0 else 0
-        else:
-            total_ml = total_oz = peso_licor = porcentaje = 0
         
-        # Mostrar detalles
-        detalles = (
-            f"Producto: {nombre} {marca}\n"
-            f"Tipo: {tipo}\n"
-            f"Densidad: {densidad} g/ml\n"
-            f"Capacidad total: {capacidad} ml ({capacidad * ML_A_OZ:.1f} oz)\n"
-            f"Peso envase vacío: {peso_envase} g\n"
-            f"Disponible: {total_ml:.1f} ml ({total_oz:.1f} oz)\n"
-            f"Peso licor actual: {peso_licor:.1f} g\n"
-            f"Porcentaje de capacidad: {porcentaje:.1f}%\n"
-            f"Botellas completas: {botellas}"
-        )
+            # Mostrar detalles
+            detalles = (
+                f"Producto: {nombre} {marca}\n"
+                f"Tipo: {tipo}\n"
+                f"Densidad: {densidad:.3f} g/ml\n"
+                f"Capacidad total: {capacidad:.1f} ml ({capacidad * ML_A_OZ:.1f} oz)\n"
+                f"Peso envase vacío: {peso_envase:.1f} g\n"
+                f"Disponible: {max(total_ml, 0):.1f} ml ({total_oz:.1f} oz)\n"
+                f"Peso licor actual: {peso_licor:.1f} g\n"
+                f"Porcentaje de capacidad: {porcentaje:.1f}%\n"
+                f"Botellas completas: {botellas}"
+            )   
         
-        self.lbl_detalles.config(text=detalles)
+            self.lbl_detalles.config(text=detalles)
         
-        # Actualizar barra de progreso
+            # Actualizar barra de progreso
+            self.actualizar_barra_progreso(porcentaje)
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudieron cargar los detalles: {str(e)}")
+    
+    def actualizar_barra_progreso(self, porcentaje):
+        """Actualiza la barra de progreso visual"""
         self.canvas_progreso.delete('all')
         ancho = self.canvas_progreso.winfo_width()
-        progreso = (ancho * porcentaje) / 100
+        progreso = (ancho * min(porcentaje, 100)) / 100  # No superar el 100%
         
         color = 'green'
         if porcentaje < 20:
@@ -1711,7 +1960,7 @@ class InventarioApp:
             color = 'orange'
         
         self.canvas_progreso.create_rectangle(0, 0, progreso, 25, fill=color, outline='')
-        self.canvas_progreso.create_text(ancho/2, 12, text=f"{porcentaje:.1f}% ({total_ml:.1f} ml)")
+        self.canvas_progreso.create_text(ancho/2, 12, text=f"{porcentaje:.1f}%")
     
     def registrar_peso(self):
         """Registra un nuevo peso para el producto seleccionado"""
@@ -1719,52 +1968,48 @@ class InventarioApp:
         if not seleccion:
             messagebox.showerror("Error", "Seleccione un producto primero")
             return
-            
+        
         try:
             peso_total = float(self.entry_peso.get())
         except ValueError:
             messagebox.showerror("Error", "Ingrese un peso válido")
             return
-            
+        
         item = self.tree_inventario.item(seleccion[0])
         nombre = item['values'][0]
-        
+    
         # Obtener datos del producto
         query = "SELECT id, densidad, peso_envase, capacidad_ml FROM productos WHERE nombre = ?"
         producto = self.db.fetch_one(query, (nombre,))
-        
+    
         if not producto:
             messagebox.showerror("Error", "Producto no encontrado")
             return
-            
+        
         id_prod, densidad, peso_envase, capacidad = producto
-        
-        # Calcular volumen
-        peso_licor = peso_total - peso_envase
-        volumen_ml = peso_licor / densidad
-        
-        # Determinar tipo de movimiento
-        if volumen_ml < 0:
-            if not messagebox.askyesno("Advertencia", "El peso es menor que el envase vacío. ¿Registrar como ajuste?"):
-                return
+    
+        # Manejo especial para peso vacío
+        if abs(peso_total - peso_envase) < 0.1:  # Considerar igual si la diferencia es mínima
+            volumen_ml = 0.0
             tipo = "ajuste"
+        
+            # Eliminar todos los movimientos anteriores para este producto
+            delete_query = "DELETE FROM movimientos WHERE producto_id = ?"
+            self.db.execute_query(delete_query, (id_prod,))
         else:
-            # Verificar último registro para determinar si es entrada o salida
-            ultimo_query = """
-            SELECT cantidad_ml 
-            FROM movimientos 
-            WHERE producto_id = ? 
-            ORDER BY fecha DESC 
-            LIMIT 1
-            """
+            peso_licor = peso_total - peso_envase
+            volumen_ml = peso_licor / densidad
+        
+            # Determinar tipo de movimiento
+            ultimo_query = "SELECT cantidad_ml FROM movimientos WHERE producto_id = ? ORDER BY fecha DESC LIMIT 1"
             ultimo_ml = self.db.fetch_one(ultimo_query, (id_prod,))
-            
+        
             if ultimo_ml:
                 diferencia = volumen_ml - ultimo_ml[0]
                 tipo = "entrada" if diferencia > 0 else "salida"
             else:
-                tipo = "entrada"  # Primer registro
-        
+                tipo = "entrada"
+    
         # Insertar movimiento
         query = """
         INSERT INTO movimientos (producto_id, user_id, tipo, cantidad_ml, peso_bruto, notas)
@@ -1772,112 +2017,119 @@ class InventarioApp:
         """
         notas = f"Registro manual. Peso total: {peso_total}g"
         self.db.execute_query(query, (id_prod, self.user_id, tipo, volumen_ml, peso_total, notas))
-        
+    
         # Actualizar interfaces
         self.actualizar_inventario()
-        self.cargar_movimientos_recientes()
+        self.actualizar_grafico_inventario()
         self.mostrar_detalles_producto(None)
-        
+    
         # Mostrar confirmación
         messagebox.showinfo("Registro exitoso", 
-                          f"Volumen registrado: {volumen_ml:.1f} ml\n"
-                          f"Tipo de movimiento: {tipo}")
-        
-        # Limpiar campo de peso
+                        f"Volumen registrado: {volumen_ml:.1f} ml\n"
+                        f"Tipo de movimiento: {tipo}")
+    
         self.entry_peso.delete(0, 'end')
     
     def auto_completar_peso_vacio(self):
-        """Autocompleta el campo de peso con el peso del envase vacío"""
+        """Autocompleta con el peso exacto del envase vacío"""
         seleccion = self.tree_inventario.selection()
         if not seleccion:
             messagebox.showerror("Error", "Seleccione un producto primero")
             return
-            
+        
         item = self.tree_inventario.item(seleccion[0])
         nombre = item['values'][0]
-        
+    
         query = "SELECT peso_envase FROM productos WHERE nombre = ?"
         peso_envase = self.db.fetch_one(query, (nombre,))[0]
-        
+    
         self.entry_peso.delete(0, 'end')
-        self.entry_peso.insert(0, str(peso_envase))
+        self.entry_peso.insert(0, f"{peso_envase:.1f}")  # Mostrar con 1 decimal
     
     def agregar_botella_completa(self):
         """Agrega una botella completa al inventario"""
-        seleccion = self.tree_inventario.selection()
-        if not seleccion:
-            messagebox.showerror("Error", "Seleccione un producto primero")
-            return
+        try:
+            seleccion = self.tree_inventario.selection()
+            if not seleccion:
+                messagebox.showerror("Error", "Seleccione un producto primero")
+                return
             
-        item = self.tree_inventario.item(seleccion[0])
-        nombre = item['values'][0]
+            item = self.tree_inventario.item(seleccion[0])
+            nombre = item['values'][0]
         
-        query = "SELECT id, capacidad_ml FROM productos WHERE nombre = ?"
-        producto = self.db.fetch_one(query, (nombre,))
+            query = "SELECT id, capacidad_ml FROM productos WHERE nombre = ?"
+            producto = self.db.fetch_one(query, (nombre,))
         
-        if not producto:
-            messagebox.showerror("Error", "Producto no encontrado")
-            return
+            if not producto:
+                messagebox.showerror("Error", "Producto no encontrado")
+                return
             
-        id_prod, capacidad = producto
+            id_prod, capacidad = producto
         
-        # Actualizar contador de botellas
-        query = "UPDATE productos SET botellas_completas = botellas_completas + 1 WHERE id = ?"
-        self.db.execute_query(query, (id_prod,))
+            # Actualizar contador de botellas
+            query = "UPDATE productos SET botellas_completas = botellas_completas + 1 WHERE id = ?"
+            self.db.execute_query(query, (id_prod,))
         
-        # Registrar movimiento de entrada
-        query = """
-        INSERT INTO movimientos (producto_id, user_id, tipo, cantidad_ml, notas)
-        VALUES (?, ?, ?, ?, ?)
-        """
-        self.db.execute_query(query, (id_prod, self.user_id, 'entrada', capacidad, 'Botella completa agregada'))
+            # Registrar movimiento de entrada
+            query = """
+            INSERT INTO movimientos (producto_id, user_id, tipo, cantidad_ml, notas)
+            VALUES (?, ?, ?, ?, ?)
+            """
+            self.db.execute_query(query, (id_prod, self.user_id, 'entrada', capacidad, 'Botella completa agregada'))
         
-        # Actualizar interfaces
-        self.actualizar_inventario()
-        self.cargar_movimientos_recientes()
+            # Actualizar interfaces
+            self.actualizar_inventario()
+            self.cargar_movimientos_recientes()
+            self.actualizar_grafico_inventario()  # Asegurar que se actualice el gráfico
         
-        messagebox.showinfo("Éxito", f"Botella completa de {nombre} agregada al inventario")
+            messagebox.showinfo("Éxito", f"Botella completa de {nombre} agregada al inventario")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al agregar botella: {str(e)}")
     
     def quitar_botella_completa(self):
         """Quita una botella completa del inventario"""
-        seleccion = self.tree_inventario.selection()
-        if not seleccion:
-            messagebox.showerror("Error", "Seleccione un producto primero")
-            return
-            
-        item = self.tree_inventario.item(seleccion[0])
-        nombre = item['values'][0]
-        botellas = item['values'][4]
+        try:
+            seleccion = self.tree_inventario.selection()
+            if not seleccion:
+                messagebox.showerror("Error", "Seleccione un producto primero")
+                return
+    
+            item = self.tree_inventario.item(seleccion[0])
+            nombre = item['values'][0]
+    
+            # Obtener datos actuales del producto
+            query = "SELECT id, capacidad_ml, botellas_completas FROM productos WHERE nombre = ?"
+            producto = self.db.fetch_one(query, (nombre,))
+    
+            if not producto:
+                messagebox.showerror("Error", "Producto no encontrado")
+                return
         
-        if botellas <= 0:
-            messagebox.showerror("Error", "No hay botellas completas para quitar")
-            return
-            
-        query = "SELECT id, capacidad_ml FROM productos WHERE nombre = ?"
-        producto = self.db.fetch_one(query, (nombre,))
-        
-        if not producto:
-            messagebox.showerror("Error", "Producto no encontrado")
-            return
-            
-        id_prod, capacidad = producto
-        
-        # Actualizar contador de botellas
-        query = "UPDATE productos SET botellas_completas = botellas_completas - 1 WHERE id = ?"
-        self.db.execute_query(query, (id_prod,))
-        
-        # Registrar movimiento de salida
-        query = """
-        INSERT INTO movimientos (producto_id, user_id, tipo, cantidad_ml, notas)
-        VALUES (?, ?, ?, ?, ?)
-        """
-        self.db.execute_query(query, (id_prod, self.user_id, 'salida', capacidad, 'Botella completa retirada'))
-        
-        # Actualizar interfaces
-        self.actualizar_inventario()
-        self.cargar_movimientos_recientes()
-        
-        messagebox.showinfo("Éxito", f"Botella completa de {nombre} retirada del inventario")
+            id_prod, capacidad, botellas = producto
+    
+            if botellas <= 0:
+                messagebox.showerror("Error", "No hay botellas completas para quitar")
+                return
+    
+            # Actualizar contador de botellas
+            query = "UPDATE productos SET botellas_completas = botellas_completas - 1 WHERE id = ?"
+            self.db.execute_query(query, (id_prod,))
+    
+            # Registrar movimiento de salida
+            query = """
+            INSERT INTO movimientos (producto_id, user_id, tipo, cantidad_ml, notas)
+            VALUES (?, ?, ?, ?, ?)
+            """
+            self.db.execute_query(query, (id_prod, self.user_id, 'salida', capacidad, 'Botella completa retirada'))
+    
+            # Actualizar interfaces
+            self.actualizar_inventario()
+            self.cargar_movimientos_recientes()
+            self.actualizar_grafico_inventario()  # Asegurar que se actualice el gráfico
+    
+            messagebox.showinfo("Éxito", f"Botella completa de {nombre} retirada del inventario")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al quitar botella: {str(e)}")
     
     def filtrar_movimientos(self, event=None):
         """Filtra los movimientos según los criterios seleccionados"""
@@ -1967,10 +2219,10 @@ class InventarioApp:
         """Genera el reporte de consumo para el producto seleccionado"""
         producto = self.combo_reporte_producto.get()
         periodo = self.combo_reporte_periodo.get()
-        
+    
         if not producto:
             return
-            
+        
         # Determinar fecha de inicio según el período seleccionado
         if periodo == '7 días':
             dias = 7
@@ -1984,54 +2236,55 @@ class InventarioApp:
             dias = 90
         else:
             dias = 30  # Por defecto
-        
+    
         fecha_inicio = (datetime.now() - timedelta(days=dias)).strftime('%Y-%m-%d')
-        
+    
         # Obtener datos del producto
         query = "SELECT id FROM productos WHERE nombre = ?"
         id_prod = self.db.fetch_one(query, (producto,))[0]
-        
-        # Obtener movimientos del período
+    
+        # Obtener movimientos del período (corregido para manejar correctamente entradas y salidas)
         query = """
         SELECT DATE(fecha) as dia, 
-               SUM(CASE WHEN tipo = 'entrada' THEN cantidad_ml ELSE 0 END) as entradas,
-               SUM(CASE WHEN tipo = 'salida' THEN cantidad_ml ELSE 0 END) as salidas
+           SUM(CASE WHEN tipo = 'entrada' THEN cantidad_ml ELSE 0 END) as entradas,
+           SUM(CASE WHEN tipo = 'salida' THEN cantidad_ml ELSE 0 END) as salidas
         FROM movimientos
         WHERE producto_id = ? AND DATE(fecha) >= ?
         GROUP BY DATE(fecha)
         ORDER BY DATE(fecha)
         """
         datos = self.db.fetch_all(query, (id_prod, fecha_inicio))
-        
+    
         # Preparar datos para el gráfico
         fechas = [datetime.strptime(d[0], '%Y-%m-%d') for d in datos]
         entradas = [d[1] for d in datos]
-        salidas = [-d[2] for d in datos]  # Negativo para mostrar hacia abajo
-        
+        salidas = [abs(d[2]) for d in datos]  # Convertir a valores positivos
+    
         # Crear gráfico
         self.ax_reportes.clear()
-        
+    
         if datos:
+            # Barras apiladas para mejor visualización
             self.ax_reportes.bar(fechas, entradas, color='green', label='Entradas')
-            self.ax_reportes.bar(fechas, salidas, color='red', label='Salidas')
-            
-            # Línea de tendencia de consumo
-            consumos = [e + s for e, s in zip(entradas, salidas)]
-            self.ax_reportes.plot(fechas, consumos, color='blue', marker='o', linestyle='--', label='Consumo neto')
-            
+            self.ax_reportes.bar(fechas, salidas, bottom=entradas, color='red', label='Salidas')
+        
+            # Línea de tendencia de consumo neto
+            consumos_netos = [e - s for e, s in zip(entradas, salidas)]
+            self.ax_reportes.plot(fechas, consumos_netos, color='blue', marker='o', linestyle='--', label='Consumo neto')
+        
             self.ax_reportes.axhline(0, color='black', linewidth=0.5)
             self.ax_reportes.set_title(f'Consumo de {producto} - Últimos {dias} días')
             self.ax_reportes.set_xlabel('Fecha')
             self.ax_reportes.set_ylabel('Cantidad (ml)')
             self.ax_reportes.legend()
             self.ax_reportes.grid(True, linestyle='--', alpha=0.7)
-            
+        
             # Rotar fechas para mejor visualización
             plt.setp(self.ax_reportes.get_xticklabels(), rotation=45, ha='right')
-            
+        
             # Ajustar layout
             self.fig_reportes.tight_layout()
-        
+    
         self.canvas_reportes.draw()
     
     def exportar_grafico(self):
@@ -2080,25 +2333,25 @@ class InventarioApp:
     
     def show_page(self, page_name):
         """Muestra la página seleccionada"""
+        # Oculta todas las páginas
         for page in self.pages.values():
             page.pack_forget()
-        
+    
+        # Muestra la página seleccionada
         self.pages[page_name].pack(fill='both', expand=True)
-        self.current_page = page_name
-        
+    
         # Actualizar datos específicos de la página
-        if page_name == 'inventario':
-            self.actualizar_inventario()
-        elif page_name == 'productos':
-            self.actualizar_lista_productos()
-        elif page_name == 'movimientos':
-            self.cargar_movimientos_recientes()
-        elif page_name == 'reportes':
-            self.generar_reporte_consumo()
-        elif page_name == 'admin_locales':
-            self.actualizar_lista_locales()
-        elif page_name == 'admin_usuarios':
-            self.actualizar_lista_usuarios()
+        update_actions = {
+            'inventario': self.actualizar_inventario,
+            'productos': self.actualizar_lista_productos,
+            'movimientos': self.cargar_movimientos_recientes,
+            'reportes': self.generar_reporte_consumo,
+            'admin_locales': self.actualizar_lista_locales,
+            'admin_usuarios': self.actualizar_lista_usuarios
+        }
+    
+        if page_name in update_actions:
+            update_actions[page_name]()  # Llama al método correspondiente
     
     def on_close(self):
         """Maneja el cierre de la aplicación"""
